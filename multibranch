@@ -1,0 +1,46 @@
+pipeline {
+    agent any
+
+    environment {
+        // Define any common environment variables here
+        DOCKER_REGISTRY = 'my-docker-registry'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Clone the repository from Git
+                git 'https://github.com/your-username/multi-config-project.git'
+            }
+        }
+
+        stage('Build and Deploy Development') {
+            steps {
+                script {
+                    // Run Docker Compose for Development
+                    sh '''
+                    docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+                    '''
+                }
+            }
+        }
+
+        stage('Build and Deploy Production') {
+            steps {
+                script {
+                    // Run Docker Compose for Production
+                    sh '''
+                    docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Clean up after execution
+            sh 'docker-compose down'
+        }
+    }
+}
