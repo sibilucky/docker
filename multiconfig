@@ -1,0 +1,35 @@
+pipeline {
+    agent any
+
+    parameters {
+        choice(name: 'ENVIRONMENT', choices: ['development', 'production'], description: 'Select the environment to build')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git 'https://github.com/your-username/multi-config-project.git'
+            }
+        }
+
+        stage('Build and Deploy') {
+            steps {
+                script {
+                    if (params.ENVIRONMENT == 'development') {
+                        // Build and deploy in development mode
+                        sh 'docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d'
+                    } else if (params.ENVIRONMENT == 'production') {
+                        // Build and deploy in production mode
+                        sh 'docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker-compose down'
+        }
+    }
+}
