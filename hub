@@ -1,0 +1,85 @@
+pipeline {
+    agent none
+    environment {
+        GIT_REPO = 'https://github.com/sibilucky/docker.git'
+        DOCKER_IMAGE = 'mugithi/blog'
+        DOCKER_REGISTRY_CREDENTIALS = 'dockerhub'  // Jenkins credentials ID for Dockerhub
+        DOCKER_EMAIL = 'sibisidhu'
+    }
+    stages {
+        stage('Code Pull on Github') {
+            agent { label 'stage' }
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], 
+                  userRemoteConfigs: [[credentialsId: 'github', url: GIT_REPO]]])
+            }
+        }
+        
+        stage('Container Image Builds') {
+            agent { label 'stage' }
+            steps {
+                script {
+                    sh "sudo docker build -t ${DOCKER_IMAGE}:${env.BUILD_TAG} ."
+                }
+            }
+        }
+
+        stage('Image Push to Dockerhub') {
+            agent { label 'stage' }
+            steps {
+                withCredentials([usernamePassword(credentialsId: DOCKER_REGISTRY_CREDENTIALS, 
+                    usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    script {
+                        sh '''
+                        sudo docker login -u ${DOCKER_USERNAME} -p ${DOCKER_PASSWORD} -e ${DOCKER_EMAIL}
+                        sudo docker push ${DOCKER_IMAGE}:${env.BUILD_TAG}
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Update staged-blog.isaack.io') {
+            agent { label 'stage' }
+            steps {
+                script {
+                    
+                    sh '''CID=`sudo docker ps -qa`
+                    if [ -n "$CID" ]; then sudo docker stop $CID && sudo docker rm $CID; else echo "No Container is running"; fi'''
+
+                    sh "sudo docker run -itd -p 80:4000 --name isaack.io ${DOCKER_IMAGE}:${env.BUILD_TAG} serve --host=0.0.0.0"
+                    sh 'sudo docker ps -qa'
+                    sh '''set +x; echo "Please navigate to http://"`curl ifconfig.ca`; set -x'''
+                }
+            }
+        }
+
+        stage('Promote to Production') {
+            agent none
+            steps {
+                script {
+                    def userInput = input id: 'Promote', message: 'Promote This to Production?', parameters: [choice(choices: 'Yes\nNo', description: '', name: 'answer')]
+                    echo ("Answer: ${userInput}")
+                    if (userInput == "Yes") {
+                        node('production') {
+                            script {
+                               
+                                sh '''CID=`sudo docker ps -qa`
+                                if [ -n "$CID" ]; then sudo docker stop $CID && sudo docker rm $CID; else echo "No Container is running"; fi'''
+
+                                // Deploy to production
+                                sh "sudo docker run -itd -p 80:4000 --name blog.isaack.io ${DOCKER_IMAGE}:${env.BUILD_TAG} serve --host=0.0.0.0"
+                                
+                                // Output the running container's ID and provide the production URL
+                                sh 'sudo docker ps -qa'
+                                sh '''set +x; echo "Please navigate to http://"`curl ifconfig.ca`; set -x'''
+                            }
+                        }
+                    } else {
+                        echo "Deployment to production was cancelled by the user."
+                    }
+                }
+            }
+        }
+    }
+}
